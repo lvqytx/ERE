@@ -1,0 +1,5 @@
+/data/
+/finetune_model_path/
+/transformers/
+/venv/
+/.idea/
