@@ -11,7 +11,11 @@ import model.etl_span_transformers as etl
 from tqdm import tqdm
 from config.spo_config_v2 import SPO_TAG
 from layers.encoders.transformers.bert.bert_optimization import BertAdam
+from warnings import simplefilter
+simplefilter(action='ignore', category=FutureWarning)
+logger = logging.getLogger(__name__)
 
+import torch.nn as nn
 
 class Trainer(object):
     def __init__(self, args, data_loaders, examples, spo_conf, tokenizer):
@@ -78,24 +82,25 @@ class Trainer(object):
 
                 if step % step_gap == 0:
                     global_loss += loss
-                    current_loss = global_loss/step_gap
+                    current_loss = global_loss / step_gap
                     print(
                         u"step {} / {} of epoch {}, train/loss: {}".format(step, len(self.data_loader_choice["train"]),
                                                                            epoch, current_loss))
                     global_loss = 0.0
 
-        res_dev = self.eval_data_set("dev")
-        if res_dev['f1'] >= best_f1:
-            logging.info("** ** * Saving fine-tuned model ** ** * ")
-            model_to_save = self.model.module if hasattr(self.model,
-                                                         'module') else self.model  # Only save the model it-self
-            output_model_file = args.output + "/pytorch_model.bin"
-            torch.save(model_to_save.state_dict(), str(output_model_file))
-            patience_stop = 0
-        else:
-            patience_stop += 1
-        if patience_stop >= args.patience_stop:
-            return
+            res_dev = self.eval_data_set("dev")
+            if res_dev['f1'] >= best_f1:
+                best_f1 = res_dev['f1']
+                logging.info("** ** * Saving fine-tuned model ** ** * ")
+                model_to_save = self.model.module if hasattr(self.model,
+                                                             'module') else self.model  # Only save the model it-self
+                output_model_file = args.output + "/pytorch_model.bin"
+                torch.save(model_to_save.state_dict(), str(output_model_file))
+                patience_stop = 0
+            else:
+                patience_stop += 1
+            if patience_stop >= args.patience_stop:
+                return
 
     def resume(self, args):
         resume_model_file = args.output + "/pytorch_model.bin"
@@ -135,7 +140,7 @@ class Trainer(object):
         answer_dict = {i:[[], [], {}] for i in range(len(eval_file))}
         last_time = time.time()
         with torch.no_grad():
-            for _, batch in tqdm(enumerate(data_loader), mininterval=5, leave=5, file=sys.stdout):
+            for _, batch in tqdm(enumerate(data_loader), mininterval=5, leave=False, file=sys.stdout):
                 self.forward(batch, chosen, eval=True, answer_dict=answer_dict)
 
         used_time = time.time() - last_time
@@ -245,14 +250,12 @@ class Trainer(object):
             po_predict = []
             for s, po in spoes.items():
                 po.sort(key=lambda x: x[2])
-                sub_ent = context[tok_to_orig_start_index[s[0] - 1]:tok_to_orig_end_index[s[1] - 1] + 1].replace(
-                    '\xa0',
-                    '')
+                sub_ent = context[tok_to_orig_start_index[s[0] - 1]:tok_to_orig_end_index[s[1] - 1] + 1].replace('\xa0',
+                                                                                                                 '')
                 for (o1, o2, p) in po:
                     object_list = []
-                    obj_ent = context[tok_to_orig_start_index[o1 - 1]:tok_to_orig_end_index[o2 - 1] + 1].replace(
-                        '\xa0',
-                        '')
+                    obj_ent = context[tok_to_orig_start_index[o1 - 1]:tok_to_orig_end_index[o2 - 1] + 1].replace('\xa0',
+                                                                                                                 '')
 
                     object_dict = {'@value': obj_ent}
                     # object_list.append('@value' + '[SEP]' + obj_ent)
@@ -311,8 +314,7 @@ class Trainer(object):
 
                             if p_ in [25, 26, 27]:
                                 obj_ent = context[
-                                          tok_to_orig_start_index[o1_ - 1]:tok_to_orig_end_index[
-                                                                               o2_ - 1] + 1].replace(
+                                          tok_to_orig_start_index[o1_ - 1]:tok_to_orig_end_index[o2_ - 1] + 1].replace(
                                     '\xa0',
                                     '')
                                 object_dict[self.id2rel[p_].split('_')[1]] = obj_ent
@@ -369,6 +371,7 @@ class Trainer(object):
                 answer_dict[qid][0].append(
                     context[tok_to_orig_start_index[subject[0] - 1]:tok_to_orig_end_index[subject[1] - 1] + 1])
                 # answer_dict[qid][1].extend(po_predict)
+
 
 def calculate_metric(spo_list_gt, spo_list_predict):
     # calculate golden metric precision, recall and f1
